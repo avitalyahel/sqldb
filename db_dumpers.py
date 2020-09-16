@@ -3,7 +3,6 @@ from collections import OrderedDict
 
 import yaml
 
-# from labels import formats
 import generic
 from verbosity import verbose
 
