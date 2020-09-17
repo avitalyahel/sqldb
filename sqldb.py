@@ -99,7 +99,7 @@ def _drop_create_table(tname):
     verbose(2, 'initialized table:', tname)
 
 
-def create(table, **kwargs):
+def create(table, **kwargs) -> TableSchema:
     key = get_table_schema(table).__key__
     value = kwargs[key]
     _assert_not_existing(table, **{key: value})
