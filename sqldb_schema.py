@@ -44,17 +44,17 @@ PYTYPES = dict(
     NULL=type(None),
 )
 
-TABLE_SCHEMAS = OrderedAttrDict()
+m_table_schemas = OrderedAttrDict()
 
 
 def set_table_schemas(schemas: OrderedAttrDict):
-    global TABLE_SCHEMAS
-    TABLE_SCHEMAS = schemas
+    global m_table_schemas
+    m_table_schemas = schemas
 
 
 def get_table_schemas() -> OrderedAttrDict:
-    global TABLE_SCHEMAS
-    return TABLE_SCHEMAS
+    global m_table_schemas
+    return m_table_schemas
 
 
 def get_table_schema(table: str) -> OrderedAttrDict:

@@ -7,13 +7,13 @@ from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
 from sqldb_schema import TableSchema, set_table_schemas, get_table_schemas, get_table_schema
 from verbosity import verbose, set_verbosity
 
-g_conn = None
-g_db_path = ''
-g_table_columns = AttrDict()  # {tname: TableColumns()}
+m_conn = None
+m_db_path = ''
+m_table_columns = AttrDict()  # {tname: TableColumns()}
 
 
 def name() -> str:
-    return os.path.basename(g_db_path)
+    return os.path.basename(m_db_path)
 
 
 class TableColumns(object):
@@ -42,23 +42,23 @@ class TableColumns(object):
 
 
 def connect(path: str):
-    global g_conn
+    global m_conn
 
-    if g_conn is None:
-        global g_db_path
-        g_db_path = os.path.expanduser(path)
-        g_conn = sqlite3.connect(g_db_path, check_same_thread=False)
-        verbose(2, 'connected to', g_db_path)
+    if m_conn is None:
+        global m_db_path
+        m_db_path = os.path.expanduser(path)
+        m_conn = sqlite3.connect(m_db_path, check_same_thread=False)
+        verbose(2, 'connected to', m_db_path)
 
 
 def disconnect():
-    global g_conn
+    global m_conn
 
-    if g_conn is not None:
-        g_conn.commit()
-        g_conn.close()
-        verbose(2, 'closed connection to:', g_db_path)
-        g_conn = None
+    if m_conn is not None:
+        m_conn.commit()
+        m_conn.close()
+        verbose(2, 'closed connection to:', m_db_path)
+        m_conn = None
 
 
 def init(path: str = '', drop: bool = False):
@@ -72,28 +72,28 @@ def init(path: str = '', drop: bool = False):
 
 def fini():
     for tname in get_table_schemas().keys():
-        if tname in g_table_columns:
-            del g_table_columns[tname]
+        if tname in m_table_columns:
+            del m_table_columns[tname]
 
     disconnect()
 
 
 def load_table_info(tname):
-    if tname not in g_table_columns:
-        cols = g_conn.cursor().execute('PRAGMA table_info("{}")'.format(tname)).fetchall()
+    if tname not in m_table_columns:
+        cols = m_conn.cursor().execute('PRAGMA table_info("{}")'.format(tname)).fetchall()
 
         if cols:
-            g_table_columns[tname] = TableColumns(*cols)
+            m_table_columns[tname] = TableColumns(*cols)
             verbose(2, 'loaded info of table:', tname)
 
         else:
             return None
 
-    return g_table_columns[tname]
+    return m_table_columns[tname]
 
 
 def _drop_create_table(tname):
-    cur = g_conn.cursor()
+    cur = m_conn.cursor()
     cur.execute('DROP TABLE IF EXISTS ' + tname)
     cur.execute('CREATE TABLE {} ({})'.format(tname, str(get_table_schema(tname))))
     verbose(2, 'initialized table:', tname)
@@ -107,8 +107,8 @@ def create(table, **kwargs) -> TableSchema:
     record = get_table_schema(table).new(**kwargs)
     sql = 'INSERT INTO {} ({}) VALUES ({})'.format(table, *record.for_insert())
     verbose(2, sql)
-    g_conn.cursor().execute(sql)
-    g_conn.commit()
+    m_conn.cursor().execute(sql)
+    m_conn.commit()
     verbose(1, 'created', table[:-1], repr(record))
     return record
 
@@ -120,8 +120,8 @@ def update(table, **kwargs):
 
     record = get_table_schema(table).new(**kwargs)
     sql = 'UPDATE {} SET {} WHERE {}=\'{}\''.format(table, record.for_update(**kwargs), key, value)
-    g_conn.cursor().execute(sql)
-    g_conn.commit()
+    m_conn.cursor().execute(sql)
+    m_conn.commit()
     verbose(2, 'updated', table[:-1], repr(record))
 
 
@@ -129,7 +129,7 @@ def read(table, **kv) -> TableSchema:
     assert len(kv) == 1, 'expected single key-value pair'
     sql = 'SELECT * FROM {} WHERE {}=\'{}\''.format(table, *list(kv.items())[0])
     verbose(2, 'reading:', sql)
-    values = g_conn.cursor().execute(sql).fetchone()
+    values = m_conn.cursor().execute(sql).fetchone()
 
     if not values:
         raise NameError('missing from {}: {}={}'.format(table, *list(kv.items())[0]))
@@ -144,7 +144,7 @@ def existing(table, **kv) -> bool:
 
     key, value = list(kv.items())[0]
     sql = 'SELECT 1 FROM {} WHERE {}=\'{}\' LIMIT 1'.format(table, key, value)
-    values = g_conn.cursor().execute(sql).fetchone()
+    values = m_conn.cursor().execute(sql).fetchone()
     exists = values is not None and len(values) > 0
     verbose(2, key, value, 'does' if exists else 'does not', 'exist')
     return exists
@@ -177,8 +177,8 @@ def delete(table, lenient=False, **kv):
 
     col, value = list(kv.items())[0]
     sql = 'DELETE FROM {} WHERE {} {} \'{}\''.format(table, col, 'LIKE' if '%' in value else '=', value)
-    g_conn.cursor().execute(sql)
-    g_conn.commit()
+    m_conn.cursor().execute(sql)
+    m_conn.commit()
     verbose(1, '[v]', sql)
 
 
@@ -198,7 +198,7 @@ def select(table: str, *columns, **where) -> Iterable:  # yield row
 
 def _select(sql) -> Iterable:  # yield row
     verbose(3, sql)
-    cursor = g_conn.cursor().execute(sql)
+    cursor = m_conn.cursor().execute(sql)
 
     row = cursor.fetchone()
 
@@ -233,7 +233,7 @@ def rows(table: str, sep: str = '', **where) -> Iterable:
 
 
 def _new_schema(table, values) -> TableSchema:
-    return get_table_schema(table).new(**dict(zip(g_table_columns[table].names, values)))
+    return get_table_schema(table).new(**dict(zip(m_table_columns[table].names, values)))
 
 
 def _new_dump_file(out: str, cwd: str = '', table: str = '') -> Dumper:
