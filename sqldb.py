@@ -2,9 +2,9 @@ import os
 import sqlite3
 from typing import Iterator, Iterable
 
-from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
-from sqldb_schema import TABLE_SCHEMAS, TableSchema
 from generic import AttrDict, OrderedAttrDict
+from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
+from sqldb_schema import TableSchema, set_table_schemas, get_table_schemas, get_table_schema
 from verbosity import verbose, set_verbosity
 
 g_conn = None
@@ -64,14 +64,14 @@ def disconnect():
 def init(path: str = '', drop: bool = False):
     connect(path)
 
-    for tname in TABLE_SCHEMAS.keys():
+    for tname in get_table_schemas().keys():
         if drop or not load_table_info(tname):
             _drop_create_table(tname)
             load_table_info(tname)
 
 
 def fini():
-    for tname in TABLE_SCHEMAS.keys():
+    for tname in get_table_schemas().keys():
         if tname in g_table_columns:
             del g_table_columns[tname]
 
@@ -95,16 +95,16 @@ def load_table_info(tname):
 def _drop_create_table(tname):
     cur = g_conn.cursor()
     cur.execute('DROP TABLE IF EXISTS ' + tname)
-    cur.execute('CREATE TABLE {} ({})'.format(tname, str(TABLE_SCHEMAS[tname])))
+    cur.execute('CREATE TABLE {} ({})'.format(tname, str(get_table_schema(tname))))
     verbose(2, 'initialized table:', tname)
 
 
 def create(table, **kwargs):
-    key = TABLE_SCHEMAS[table].__key__
+    key = get_table_schema(table).__key__
     value = kwargs[key]
     _assert_not_existing(table, **{key: value})
 
-    record = TABLE_SCHEMAS[table].new(**kwargs)
+    record = get_table_schema(table).new(**kwargs)
     sql = 'INSERT INTO {} ({}) VALUES ({})'.format(table, *record.for_insert())
     verbose(2, sql)
     g_conn.cursor().execute(sql)
@@ -114,11 +114,11 @@ def create(table, **kwargs):
 
 
 def update(table, **kwargs):
-    key = TABLE_SCHEMAS[table].__key__
+    key = get_table_schema(table).__key__
     value = kwargs[key]
     _assert_existing(table, **{key: value})
 
-    record = TABLE_SCHEMAS[table].new(**kwargs)
+    record = get_table_schema(table).new(**kwargs)
     sql = 'UPDATE {} SET {} WHERE {}=\'{}\''.format(table, record.for_update(**kwargs), key, value)
     g_conn.cursor().execute(sql)
     g_conn.commit()
@@ -151,7 +151,7 @@ def existing(table, **kv) -> bool:
 
 
 def write(table, **kwargs):
-    key = TABLE_SCHEMAS[table].__key__
+    key = get_table_schema(table).__key__
     value = kwargs[key]
 
     if existing(table, **{key: value}):
@@ -190,7 +190,7 @@ def select(table: str, *columns, **where) -> Iterable:  # yield row
     sql = 'SELECT {} FROM {}'.format(','.join(columns) if columns else '*', table)
 
     if where:
-        sql += ' WHERE ' + TABLE_SCHEMAS[table].new(**where).for_where(**where)
+        sql += ' WHERE ' + get_table_schema(table).new(**where).for_where(**where)
 
     for row in _select(sql):
         yield row
@@ -216,13 +216,15 @@ def select_join(left: str, right: str, on: str) -> Iterable:  # yield row
 
 
 def select_objects(table: str, *columns, **where) -> Iterable:  # (OrderedAttrDict, )
-    return (OrderedAttrDict(zip((k for k in TABLE_SCHEMAS[table].keys() if not columns or k in columns), row))
+    return (OrderedAttrDict(zip((k for k in get_table_schema(table).keys() if not columns or k in columns), row))
             for row in select(table, *columns, **where))
 
 
 def select_join_objects(left: str, right: str, on: str) -> Iterable:  # (OrderedAttrDict, )
-    return (OrderedAttrDict(zip(list(TABLE_SCHEMAS[left].keys())[:-1] + list(TABLE_SCHEMAS[right].keys())[:-1], row))
-            for row in select_join(left, right, on))
+    return (
+        OrderedAttrDict(zip(list(get_table_schema(left).keys())[:-1] + list(get_table_schema(right).keys())[:-1], row))
+        for row in select_join(left, right, on)
+    )
 
 
 def rows(table: str, sep: str = '', **where) -> Iterable:
@@ -231,7 +233,7 @@ def rows(table: str, sep: str = '', **where) -> Iterable:
 
 
 def _new_schema(table, values) -> TableSchema:
-    return TABLE_SCHEMAS[table].new(**dict(zip(g_table_columns[table].names, values)))
+    return get_table_schema(table).new(**dict(zip(g_table_columns[table].names, values)))
 
 
 def _new_dump_file(out: str, cwd: str = '', table: str = '') -> Dumper:
@@ -257,13 +259,13 @@ def _close_dump_files(files: [Dumper]) -> [str]:
 def dump(*outs, cwd: str = '') -> [str]:
     assert outs, 'expected one or more out files, formats: ' + ', '.join(DUMPERS.keys())
     dumped = []
-    tables = list(TABLE_SCHEMAS.keys())
+    tables = list(get_table_schemas().keys())
 
     for table in tables:
         dump_files = [_new_dump_file(out, cwd, table) for out in outs]
 
         for row in select_objects(table):
-            [file.dump(TABLE_SCHEMAS[table].new(**row)) for file in dump_files]
+            [file.dump(get_table_schema(table).new(**row)) for file in dump_files]
 
         dumped.extend(_close_dump_files(dump_files))
 
@@ -272,6 +274,22 @@ def dump(*outs, cwd: str = '') -> [str]:
 
 if __name__ == '__main__':
     set_verbosity(3)
+
+    set_table_schemas(OrderedAttrDict(
+        ('Table1', TableSchema(
+            ('Field1', 'TEXT'),
+            ('Field2', 'INT'),
+            ('Field3', 'REAL'),
+            ('__key__', 'Field1'),
+        )),
+        ('Table2', TableSchema(
+            ('Field1', 'TEXT'),
+            ('Field2', 'INT'),
+            ('Field3', 'REAL'),
+            ('__key__', 'Field1'),
+        )),
+    ))
+
     init(path='/tmp/test.db', drop=True)
     sep = '\n\t\t'
 
@@ -304,6 +322,6 @@ if __name__ == '__main__':
 
     assert create('Table2', Field1='hjf', Field3=0.5)
     assert create('Table2', Field1='lmn', Field3=11.11)
-    print('\n'.join(str(r) for r in select('Table1')))
-    print('\n'.join(str(r) for r in select('Table2')))
-    print('\n'.join(str(r) for r in select_join(left='Table1', right='Table2', on='Field3')))
+    print(sep.join(str(r) for r in select('Table1')))
+    print(sep.join(str(r) for r in select('Table2')))
+    print(sep.join(str(r) for r in select_join(left='Table1', right='Table2', on='Field3')))

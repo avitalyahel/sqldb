@@ -44,17 +44,18 @@ PYTYPES = dict(
     NULL=type(None),
 )
 
-TABLE_SCHEMAS = OrderedAttrDict(
-    ('Table1', TableSchema(
-        ('Field1', 'TEXT'),
-        ('Field2', 'INT'),
-        ('Field3', 'REAL'),
-        ('__key__', 'Field1'),
-    )),
-    ('Table2', TableSchema(
-        ('Field1', 'TEXT'),
-        ('Field2', 'INT'),
-        ('Field3', 'REAL'),
-        ('__key__', 'Field1'),
-    )),
-)
+TABLE_SCHEMAS = OrderedAttrDict()
+
+
+def set_table_schemas(schemas: OrderedAttrDict):
+    global TABLE_SCHEMAS
+    TABLE_SCHEMAS = schemas
+
+
+def get_table_schemas() -> OrderedAttrDict:
+    global TABLE_SCHEMAS
+    return TABLE_SCHEMAS
+
+
+def get_table_schema(table: str) -> OrderedAttrDict:
+    return get_table_schemas()[table]
