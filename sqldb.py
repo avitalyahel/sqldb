@@ -2,8 +2,8 @@ import os
 import sqlite3
 from typing import Iterator, Iterable
 
-from db_dumpers import DUMPERS, dump_file_fmt, Dumper
-from db_schema import TABLE_SCHEMAS, TableSchema
+from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
+from sqldb_schema import TABLE_SCHEMAS, TableSchema
 from generic import AttrDict, OrderedAttrDict
 from verbosity import verbose, set_verbosity
 
