@@ -7,7 +7,7 @@ from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
 from sqldb_schema import TableSchema, set_table_schemas, get_table_schemas, get_table_schema
 from verbosity import verbose, set_verbosity
 
-m_conn = None
+m_conn = sqlite3.Connection('')
 m_db_path = ''
 m_table_columns = AttrDict()  # {tname: TableColumns()}
 
@@ -43,22 +43,20 @@ class TableColumns(object):
 
 def connect(path: str):
     global m_conn
+    global m_db_path
 
-    if m_conn is None:
-        global m_db_path
-        m_db_path = os.path.expanduser(path)
-        m_conn = sqlite3.connect(m_db_path, check_same_thread=False)
-        verbose(2, 'connected to', m_db_path)
+    m_db_path = os.path.expanduser(path)
+    m_conn = sqlite3.connect(m_db_path, check_same_thread=False)
+    verbose(2, 'connected to', m_db_path)
 
 
 def disconnect():
     global m_conn
 
-    if m_conn is not None:
-        m_conn.commit()
-        m_conn.close()
-        verbose(2, 'closed connection to:', m_db_path)
-        m_conn = None
+    m_conn.commit()
+    m_conn.close()
+    verbose(2, 'closed connection to:', m_db_path)
+    m_conn = sqlite3.Connection('')
 
 
 def init(path: str = '', drop: bool = False):
