@@ -24,8 +24,22 @@ class TableSchema(OrderedAttrDict):
         return ','.join('='.join([k, _quoted(v)]) for k, v in self.items() if (v or k in kwargs) and k != '__key__')
 
     def for_where(self, **kwargs):
-        return ' AND '.join('{}{}{}'.format(k, ' LIKE ' if '%' in v else '=', _quoted(v))
-                            for k, v in self.items() if (v or k in kwargs) and k != '__key__')
+        return ' AND '.join(f'{k}{self._where_op_value(v)}'
+                            for k, v in self.items()
+                            if (v or k in kwargs) and k != '__key__')
+
+    def _where_op_value(self, value: str) -> str:
+        if value[0] in '><':
+            op = f' {value[0]}'
+            value = value[1:].strip()
+
+        elif '%' in value:
+            op = ' LIKE '
+
+        else:
+            op = ' = '
+
+        return f'{op} {_quoted(value)}'
 
 
 def _quoted(val):
