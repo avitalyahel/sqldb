@@ -7,9 +7,13 @@ class TableSchema(OrderedAttrDict):
         return ','.join('{} {}'.format(k, v) for k, v in self.items() if k != '__key__')
 
     def __repr__(self):
-        return '{}: {}, {}'.format(
-            self.__key__, self[self.__key__],
-            ', '.join(': '.join([k, v]) for k, v in self.items() if k not in [self.__key__, '__key__'] and v))
+        if '__key__' in self:
+            return '{}: {}, {}'.format(
+                self.__key__, self[self.__key__],
+                ', '.join(': '.join([k, v]) for k, v in self.items() if k not in [self.__key__, '__key__'] and v))
+
+        else:
+            return ', '.join(': '.join([k, v]) for k, v in self.items() if v)
 
     def new(self, **kwargs):
         result = TableSchema((k, PYTYPES[v]() if v in PYTYPES else v) for k, v in self.items())
@@ -24,22 +28,23 @@ class TableSchema(OrderedAttrDict):
         return ','.join('='.join([k, _quoted(v)]) for k, v in self.items() if (v or k in kwargs) and k != '__key__')
 
     def for_where(self, **kwargs):
-        return ' AND '.join(f'{k}{self._where_op_value(v)}'
+        return ' AND '.join(f'{k}{where_op_value(v)}'
                             for k, v in self.items()
                             if (v or k in kwargs) and k != '__key__')
 
-    def _where_op_value(self, value: str) -> str:
-        if value[0] in '><':
-            op = f' {value[0]}'
-            value = value[1:].strip()
 
-        elif '%' in value:
-            op = ' LIKE '
+def where_op_value(value: str) -> str:
+    if value[0] in '><':
+        op = f' {value[0]}'
+        value = value[1:].strip()
 
-        else:
-            op = ' = '
+    elif '%' in value:
+        op = ' LIKE '
 
-        return f'{op} {_quoted(value)}'
+    else:
+        op = ' = '
+
+    return f'{op} {_quoted(value)}'
 
 
 def _quoted(val):

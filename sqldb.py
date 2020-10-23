@@ -4,7 +4,7 @@ from typing import Iterator, Iterable
 
 from generic import AttrDict, OrderedAttrDict
 from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
-from sqldb_schema import TableSchema, set_table_schemas, get_table_schemas, get_table_schema
+from sqldb_schema import TableSchema, set_table_schemas, get_table_schemas, get_table_schema, where_op_value
 from verbosity import verbose, set_verbosity
 
 m_conn = sqlite3.Connection('')
@@ -98,9 +98,10 @@ def _drop_create_table(tname):
 
 
 def create(table, **kwargs) -> TableSchema:
-    key = get_table_schema(table).__key__
-    value = kwargs[key]
-    _assert_not_existing(table, **{key: value})
+    if '__key__' in get_table_schema(table):
+        key = get_table_schema(table).__key__
+        value = kwargs[key]
+        _assert_not_existing(table, **{key: value})
 
     record = get_table_schema(table).new(**kwargs)
     sql = 'INSERT INTO {} ({}) VALUES ({})'.format(table, *record.for_insert())
@@ -112,12 +113,15 @@ def create(table, **kwargs) -> TableSchema:
 
 
 def update(table, **kwargs):
-    key = get_table_schema(table).__key__
-    value = kwargs[key]
-    _assert_existing(table, **{key: value})
+    schema = get_table_schema(table)
+
+    if '__key__' in schema:
+        key = schema.__key__
+        value = kwargs[key]
+        _assert_existing(table, **{key: value})
 
     record = get_table_schema(table).new(**kwargs)
-    sql = 'UPDATE {} SET {} WHERE {}=\'{}\''.format(table, record.for_update(**kwargs), key, value)
+    sql = 'UPDATE {} SET {} WHERE {}'.format(table, record.for_update(**kwargs), record.for_where(**kwargs))
     m_conn.cursor().execute(sql)
     m_conn.commit()
     verbose(2, 'updated', table[:-1], repr(record))
@@ -137,14 +141,23 @@ def read(table, **kv) -> TableSchema:
     return record
 
 
-def existing(table, **kv) -> bool:
-    assert len(kv) == 1, 'expected single key-value pair'
+def existing(table, unbounded=False, **where) -> bool:
+    schema = get_table_schema(table)
 
-    key, value = list(kv.items())[0]
-    sql = 'SELECT 1 FROM {} WHERE {}=\'{}\' LIMIT 1'.format(table, key, value)
+    if '__key__' in schema:
+        assert len(where) == 1, 'expected single key-value pair'
+
+    if unbounded:
+        where_sql = ' AND '.join(f'{k}{where_op_value(str(v))}'
+                                 for k, v in where.items()
+                                 if (v or k in where) and k != '__key__')
+    else:
+        where_sql = get_table_schema(table).new(**where).for_where(**where)
+
+    sql = 'SELECT 1 FROM {} WHERE {} LIMIT 1'.format(table, where_sql)
     values = m_conn.cursor().execute(sql).fetchone()
     exists = values is not None and len(values) > 0
-    verbose(2, key, value, 'does' if exists else 'does not', 'exist')
+    verbose(2, ' '.join(f'{k}={v}' for k, v in where.items()), 'does' if exists else 'does not', 'exist')
     return exists
 
 
@@ -169,12 +182,11 @@ def _assert_not_existing(table, **kv):
         raise NameError('already exists in {}: {}={}'.format(table, *list(kv.items())[0]))
 
 
-def delete(table, lenient=False, **kv):
+def delete(table, lenient=False, **where):
     if not lenient:
-        _assert_existing(table, **kv)
+        _assert_existing(table, **where)
 
-    col, value = list(kv.items())[0]
-    sql = 'DELETE FROM {} WHERE {} {} \'{}\''.format(table, col, 'LIKE' if '%' in value else '=', value)
+    sql = f'DELETE FROM {table} WHERE ' + get_table_schema(table).new(**where).for_where(**where)
     m_conn.cursor().execute(sql)
     m_conn.commit()
     verbose(1, '[v]', sql)
