@@ -34,7 +34,7 @@ class TableSchema(OrderedAttrDict):
 
 
 def where_op_value(value: str) -> str:
-    if value[0] in '><':
+    if value and value[0] in '><':
         op = f' {value[0]}'
         value = value[1:].strip()
 
