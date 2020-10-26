@@ -149,8 +149,7 @@ def existing(table, unbounded=False, **where) -> bool:
 
     if unbounded:
         where_sql = ' AND '.join(f'{k}{where_op_value(str(v))}'
-                                 for k, v in where.items()
-                                 if (v or k in where) and k != '__key__')
+                                 for k, v in where.items() if v)
     else:
         where_sql = get_table_schema(table).new(**where).for_where(**where)
 
