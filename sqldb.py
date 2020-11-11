@@ -4,7 +4,7 @@ from typing import Iterator, Iterable
 
 from generic import AttrDict, OrderedAttrDict
 from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
-from sqldb_schema import TableSchema, set_table_schemas, get_table_schemas, get_table_schema, where_op_value
+from sqldb_schema import TableSchema, set_table_schemas, get_table_schemas, get_table_schema, where_op_value, _quoted
 from verbosity import verbose, set_verbosity
 
 m_conn = sqlite3.Connection('')
@@ -119,12 +119,19 @@ def update(table, **kwargs):
         key = schema.__key__
         value = kwargs[key]
         _assert_existing(table, **{key: value})
+        del kwargs[key]
+        where = f'{key}{where_op_value(value)}'
+        _set = ','.join('='.join([k, _quoted(v)]) for k, v in kwargs.items())
 
-    record = get_table_schema(table).new(**kwargs)
-    sql = 'UPDATE {} SET {} WHERE {}'.format(table, record.for_update(**kwargs), record.for_where(**kwargs))
+    else:
+        record = get_table_schema(table).new(**kwargs)
+        where = record.for_where(**kwargs)
+        _set = record.for_update(**kwargs)
+
+    sql = 'UPDATE {} SET {} WHERE {}'.format(table, _set, where)
     m_conn.cursor().execute(sql)
     m_conn.commit()
-    verbose(2, 'updated', table[:-1], repr(record))
+    verbose(2, 'updated', table[:-1], sql)
 
 
 def read(table, **kv) -> TableSchema:
@@ -157,6 +164,7 @@ def existing(table, unbounded=False, **where) -> bool:
     values = m_conn.cursor().execute(sql).fetchone()
     exists = values is not None and len(values) > 0
     verbose(2, ' '.join(f'{k}={v}' for k, v in where.items()), 'does' if exists else 'does not', 'exist')
+
     return exists
 
 
