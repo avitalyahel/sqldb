@@ -161,7 +161,16 @@ def existing(table, unbounded=False, **where) -> bool:
         where_sql = get_table_schema(table).new(**where).for_where(**where)
 
     sql = 'SELECT 1 FROM {} WHERE {} LIMIT 1'.format(table, where_sql)
-    values = m_conn.cursor().execute(sql).fetchone()
+
+    try:
+        values = m_conn.cursor().execute(sql).fetchone()
+
+    except sqlite3.OperationalError as exc:
+        values = None
+
+        if str(exc) != f'no such table: {table}':
+            raise exc
+
     exists = values is not None and len(values) > 0
     verbose(2, ' '.join(f'{k}={v}' for k, v in where.items()), 'does' if exists else 'does not', 'exist')
 
