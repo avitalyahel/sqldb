@@ -25,7 +25,7 @@ class TableSchema(OrderedAttrDict):
         return ','.join(cols), ','.join(vals)
 
     def for_update(self, **kwargs):
-        return ','.join('='.join([k, _quoted(v)]) for k, v in self.items() if (v or k in kwargs) and k != '__key__')
+        return ', '.join(' = '.join([k, _quoted(v)]) for k, v in self.items() if (v or k in kwargs) and k != '__key__')
 
     def for_where(self, **kwargs):
         return ' AND '.join(f'{k}{where_op_value(v)}'
@@ -44,7 +44,7 @@ def where_op_value(value: str) -> str:
     else:
         op = ' = '
 
-    return f'{op} {_quoted(value)}'
+    return f'{op}{_quoted(value)}'
 
 
 def _quoted(val):
@@ -66,9 +66,9 @@ PYTYPES = dict(
 m_table_schemas = OrderedAttrDict()
 
 
-def set_table_schemas(schemas: OrderedAttrDict):
+def update_table_schemas(schemas: OrderedAttrDict):
     global m_table_schemas
-    m_table_schemas = schemas
+    m_table_schemas.update(schemas)
 
 
 def get_table_schemas() -> OrderedAttrDict:

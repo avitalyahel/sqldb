@@ -2,9 +2,12 @@ import os
 import sqlite3
 from typing import Iterator, Iterable
 
+import MySQLdb
+
+import sqldb_schema
 from generic import AttrDict, OrderedAttrDict
 from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
-from sqldb_schema import TableSchema, set_table_schemas, get_table_schemas, get_table_schema, where_op_value, _quoted
+from sqldb_schema import TableSchema, update_table_schemas, get_table_schemas, get_table_schema, where_op_value, _quoted
 from verbosity import verbose, set_verbosity
 
 m_conn = sqlite3.Connection('')
@@ -41,13 +44,24 @@ class TableColumns(object):
         return (col[index] for col in self._cols)
 
 
-def connect(path: str):
+def connect(name: str, driver: str = '', username: str = '', password: str = ''):
     global m_conn
     global m_db_path
 
-    m_db_path = os.path.expanduser(path)
-    m_conn = sqlite3.connect(m_db_path, check_same_thread=False)
-    verbose(2, 'connected to', m_db_path)
+    if not driver or driver == 'sqlite3':
+        m_db_path = os.path.expanduser(name)
+        m_conn = sqlite3.connect(m_db_path, check_same_thread=False)
+        verbose(2, 'connected to', m_db_path)
+
+    elif driver == 'MySQLdb':
+        name, host = name.split('@', 1) if '@' in name else (name, 'localhost')
+        m_conn = MySQLdb.connect(host=host, database=name, user=username, password=password)
+        verbose(2, f'connected to {name}@{host}')
+
+    else:
+        raise KeyError(f'unsupported driver: {driver}, only one of: sqlite3, MySQLdb')
+
+    m_cursor = m_conn.cursor()
 
 
 def disconnect():
@@ -55,17 +69,18 @@ def disconnect():
 
     m_conn.commit()
     m_conn.close()
-    verbose(2, 'closed connection to:', m_db_path)
+    verbose(2, 'closed connection:', repr(m_conn))
     m_conn = sqlite3.Connection('')
 
 
-def init(path: str = '', drop: bool = False):
-    connect(path)
+def init(name: str = '', driver: str = '', username: str = '', password: str = '', drop: bool = False):
+    connect(name=name, driver=driver, username=username, password=password)
 
-    for tname in get_table_schemas().keys():
-        if drop or not load_table_info(tname):
+    for tname, fields in get_table_schemas().items():
+        if fields and drop:
             _drop_create_table(tname)
-            load_table_info(tname)
+
+        load_table_info(tname)
 
 
 def fini():
@@ -76,13 +91,49 @@ def fini():
     disconnect()
 
 
-def load_table_info(tname):
+def load_table_info(tname: str):
     if tname not in m_table_columns:
-        cols = m_conn.cursor().execute('PRAGMA table_info("{}")'.format(tname)).fetchall()
+        driver = str(m_conn).split('.')[0][1:]
+
+        if driver == 'sqlite3':
+            cols = m_conn.cursor().execute(f'PRAGMA table_info("{tname}")').fetchall()
+
+        elif driver == '_mysql':
+            try:
+                cursor = m_conn.cursor()
+                cursor.execute(f'SHOW COLUMNS FROM {tname}')
+                cols = []
+                primary = ''
+
+                for i, col in enumerate(cursor.fetchall()):
+                    cols.append(tuple([i] + list(_mysql_types_to_sqlite3(col))))
+
+                    if col[3] == 'PRI':
+                        primary = col[0]
+
+                if primary:
+                    cols.append((len(cols), '__key__', primary))
+
+                cols = tuple(cols)
+
+            except MySQLdb._exceptions.ProgrammingError as exc:
+                if exc.args[0] != 1146:  # Table '{db}.{table}' doesn't exist
+                    raise
+
+                return None
+
+        else:
+            raise TypeError(f'unsupported Db driver: {driver}')
 
         if cols:
             m_table_columns[tname] = TableColumns(*cols)
             verbose(2, 'loaded info of table:', tname)
+
+            if driver != 'sqlite3' and (
+                    tname not in sqldb_schema.m_table_schemas or not sqldb_schema.m_table_schemas[tname]):
+                sqldb_schema.m_table_schemas[tname] = sqldb_schema.TableSchema(
+                    *list(tuple(col[1:3]) for col in cols)
+                )
 
         else:
             return None
@@ -90,10 +141,25 @@ def load_table_info(tname):
     return m_table_columns[tname]
 
 
+def _mysql_types_to_sqlite3(col: tuple) -> tuple:
+    _col = list(col)
+
+    if 'int' in _col[1]:
+        _col[1] = 'INT'
+
+    elif _col[1].startswith('varchar') or _col[1] == 'datetime' or _col[1] == 'text':
+        _col[1] = 'TEXT'
+
+    elif _col[1] == 'double':
+        _col[1] = 'REAL'
+
+    return tuple(_col)
+
+
 def _drop_create_table(tname):
-    cur = m_conn.cursor()
-    cur.execute('DROP TABLE IF EXISTS ' + tname)
-    cur.execute('CREATE TABLE {} ({})'.format(tname, str(get_table_schema(tname))))
+    cursor = m_conn.cursor()
+    cursor.execute('DROP TABLE IF EXISTS ' + tname)
+    cursor.execute('CREATE TABLE {} ({})'.format(tname, str(get_table_schema(tname))))
     verbose(2, 'initialized table:', tname)
 
 
@@ -106,7 +172,8 @@ def create(table, **kwargs) -> TableSchema:
     record = get_table_schema(table).new(**kwargs)
     sql = 'INSERT INTO {} ({}) VALUES ({})'.format(table, *record.for_insert())
     verbose(2, sql)
-    m_conn.cursor().execute(sql)
+    cursor = m_conn.cursor()
+    cursor.execute(sql)
     m_conn.commit()
     verbose(1, 'created', table[:-1], repr(record))
     return record
@@ -129,7 +196,8 @@ def update(table, **kwargs):
         _set = record.for_update(**kwargs)
 
     sql = 'UPDATE {} SET {} WHERE {}'.format(table, _set, where)
-    m_conn.cursor().execute(sql)
+    cursor = m_conn.cursor()
+    cursor.execute(sql)
     m_conn.commit()
     verbose(2, 'updated', table[:-1], sql)
 
@@ -138,7 +206,9 @@ def read(table, **kv) -> TableSchema:
     assert len(kv) == 1, 'expected single key-value pair'
     sql = 'SELECT * FROM {} WHERE {}=\'{}\''.format(table, *list(kv.items())[0])
     verbose(2, 'reading:', sql)
-    values = m_conn.cursor().execute(sql).fetchone()
+    cursor = m_conn.cursor()
+    cursor.execute(sql)
+    values = cursor.fetchone()
 
     if not values:
         raise NameError('missing from {}: {}={}'.format(table, *list(kv.items())[0]))
@@ -158,12 +228,14 @@ def existing(table, unbounded=False, **where) -> bool:
         where_sql = ' AND '.join(f'{k}{where_op_value(str(v))}'
                                  for k, v in where.items() if v)
     else:
-        where_sql = get_table_schema(table).new(**where).for_where(**where)
+        where_sql = schema.new(**where).for_where(**where)
 
     sql = 'SELECT 1 FROM {} WHERE {} LIMIT 1'.format(table, where_sql)
 
     try:
-        values = m_conn.cursor().execute(sql).fetchone()
+        cursor = m_conn.cursor()
+        cursor.execute(sql)
+        values = cursor.fetchone()
 
     except sqlite3.OperationalError as exc:
         values = None
@@ -203,7 +275,8 @@ def delete(table, lenient=False, **where):
         _assert_existing(table, **where)
 
     sql = f'DELETE FROM {table} WHERE ' + get_table_schema(table).new(**where).for_where(**where)
-    m_conn.cursor().execute(sql)
+    cursor = m_conn.cursor()
+    cursor.execute(sql)
     m_conn.commit()
     verbose(1, '[v]', sql)
 
@@ -224,8 +297,9 @@ def select(table: str, *columns, **where) -> Iterable:  # yield row
 
 def _select(sql) -> Iterable:  # yield row
     verbose(3, sql)
-    cursor = m_conn.cursor().execute(sql)
 
+    cursor = m_conn.cursor()
+    cursor.execute(sql)
     row = cursor.fetchone()
 
     while row:
@@ -242,7 +316,7 @@ def select_join(left: str, right: str, on: str) -> Iterable:  # yield row
 
 
 def select_objects(table: str, *columns, **where) -> Iterable:  # (OrderedAttrDict, )
-    return (OrderedAttrDict(zip((k for k in get_table_schema(table).keys() if not columns or k in columns), row))
+    return (OrderedAttrDict(zip((f for f in get_table_schema(table).keys() if not columns or f in columns), row))
             for row in select(table, *columns, **where))
 
 
@@ -301,7 +375,7 @@ def dump(*outs, cwd: str = '') -> [str]:
 if __name__ == '__main__':
     set_verbosity(3)
 
-    set_table_schemas(OrderedAttrDict(
+    update_table_schemas(OrderedAttrDict(
         ('Table1', TableSchema(
             ('Field1', 'TEXT'),
             ('Field2', 'INT'),
@@ -314,9 +388,23 @@ if __name__ == '__main__':
             ('Field3', 'REAL'),
             ('__key__', 'Field1'),
         )),
+        ('si_classifications', None),
     ))
 
-    init(path='/tmp/test.db', drop=True)
+    init(name='dev_movado_db@dev-pontaperta-aurora.pontaperta-app.com', driver='MySQLdb',
+         username='movado', password='Yq0ycb0AzS')
+
+    classes = list(select_objects('si_classifications'))
+    assert classes
+
+    assert existing('si_classifications', id=classes[0].id)
+
+    assert read('si_classifications', id=classes[0].id)
+
+    fini()
+
+    init(name='/tmp/test.db', drop=True)
+
     sep = '\n\t\t'
 
     assert create('Table1', Field1='abc', Field2=1, Field3=0.5)
@@ -344,10 +432,12 @@ if __name__ == '__main__':
     assert create('Table1', Field1='xyz', Field2=1, Field3=11.11)
     assert len(list(select('Table1', Field2=1))) == 2
 
-    assert len(dump('test.yaml', 'test.json', 'test.csv', cwd='/tmp')) == 3 * 2
+    assert len(dump('test.yaml', 'test.json', 'test.csv', cwd='/tmp')) == 3 * 3
 
     assert create('Table2', Field1='hjf', Field3=0.5)
     assert create('Table2', Field1='lmn', Field3=11.11)
     print(sep.join(str(r) for r in select('Table1')))
     print(sep.join(str(r) for r in select('Table2')))
     print(sep.join(str(r) for r in select_join(left='Table1', right='Table2', on='Field3')))
+
+    fini()

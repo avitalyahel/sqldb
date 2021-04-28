@@ -27,10 +27,10 @@ class Dumper:
         self._file.write(str(obj) + '\n')
 
     def close(self):
-        if not self._file:
+        if self._file:
             self._file.close()
 
-        verbose(1, 'Dumped to', self._file.name)
+            verbose(1, 'Closed', self._file.name)
 
     def public(self, obj: OrderedDict) -> OrderedDict:
         return OrderedDict((k, v) for k, v in obj.items() if not k.startswith('_'))
