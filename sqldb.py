@@ -316,7 +316,7 @@ def select_join(left: str, right: str, on: str) -> Iterable:  # yield row
 
 
 def select_objects(table: str, *columns, **where) -> Iterable:  # (OrderedAttrDict, )
-    return (OrderedAttrDict(zip((f for f in get_table_schema(table).keys() if not columns or f in columns), row))
+    return (OrderedAttrDict(zip(list(f for f in get_table_schema(table).keys() if not columns or f in columns), row))
             for row in select(table, *columns, **where))
 
 
