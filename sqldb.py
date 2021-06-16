@@ -61,8 +61,6 @@ def connect(name: str, driver: str = '', username: str = '', password: str = '')
     else:
         raise KeyError(f'unsupported driver: {driver}, only one of: sqlite3, MySQLdb')
 
-    m_cursor = m_conn.cursor()
-
 
 def disconnect():
     global m_conn
@@ -129,8 +127,7 @@ def load_table_info(tname: str):
             m_table_columns[tname] = TableColumns(*cols)
             verbose(2, 'loaded info of table:', tname)
 
-            if driver != 'sqlite3' and (
-                    tname not in sqldb_schema.m_table_schemas or not sqldb_schema.m_table_schemas[tname]):
+            if tname not in sqldb_schema.m_table_schemas or not sqldb_schema.m_table_schemas[tname]:
                 sqldb_schema.m_table_schemas[tname] = sqldb_schema.TableSchema(
                     *list(tuple(col[1:3]) for col in cols)
                 )
