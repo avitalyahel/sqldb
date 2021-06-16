@@ -286,10 +286,19 @@ def list_table(table, **where) -> Iterator:
 
 
 def select(table: str, *columns, **where) -> Iterable:  # yield row
-    sql = 'SELECT {} FROM {}'.format(','.join(columns) if columns else '*', table)
+    sql = f"SELECT {','.join(columns) if columns else '*'} FROM {table}"
+
+    if 'order_by' in where:
+        order_by = ' ORDER BY ' + where['order_by']
+        del where['order_by']
+
+    else:
+        order_by = ''
 
     if where:
         sql += ' WHERE ' + get_table_schema(table).new(**where).for_where(**where)
+
+    sql += order_by
 
     for row in _select(sql):
         yield row
