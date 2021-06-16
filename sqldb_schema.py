@@ -48,7 +48,7 @@ def where_op_value(value: str) -> str:
 
 
 def _quoted(val):
-    return '"{}"'.format(val) if isinstance(val, str) else _empty(val)
+    return '\'{}\''.format(val) if isinstance(val, str) else _empty(val)
 
 
 def _empty(val):
