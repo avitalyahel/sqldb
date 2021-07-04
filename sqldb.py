@@ -271,7 +271,11 @@ def delete(table, lenient=False, **where):
     if not lenient:
         _assert_existing(table, **where)
 
-    sql = f'DELETE FROM {table} WHERE ' + get_table_schema(table).new(**where).for_where(**where)
+    sql = f'DELETE FROM {table}'
+
+    if where:
+        sql += ' WHERE ' + get_table_schema(table).new(**where).for_where(**where)
+
     cursor = m_conn.cursor()
     cursor.execute(sql)
     m_conn.commit()
