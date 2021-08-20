@@ -71,14 +71,15 @@ def disconnect():
     m_conn = sqlite3.Connection('')
 
 
-def init(name: str = '', driver: str = '', username: str = '', password: str = '', drop: bool = False):
+def init(name: str = '', driver: str = '', username: str = '', password: str = '',
+         drop: bool = False, verify: bool = True):
     connect(name=name, driver=driver, username=username, password=password)
 
     for tname, fields in get_table_schemas().items():
         if fields and drop:
             _drop_create_table(tname)
 
-        load_table_info(tname)
+        load_table_info(tname, verify=verify and not fields)
 
 
 def fini():
@@ -89,7 +90,7 @@ def fini():
     disconnect()
 
 
-def load_table_info(tname: str):
+def load_table_info(tname: str, verify: bool = True):
     if tname not in m_table_columns:
         driver = str(m_conn).split('.')[0][1:]
 
@@ -97,10 +98,11 @@ def load_table_info(tname: str):
             cols = m_conn.cursor().execute(f'PRAGMA table_info("{tname}")').fetchall()
 
         elif driver == '_mysql':
+            cols = []
+
             try:
                 cursor = m_conn.cursor()
                 cursor.execute(f'SHOW COLUMNS FROM {tname}')
-                cols = []
                 primary = ''
 
                 for i, col in enumerate(cursor.fetchall()):
@@ -115,10 +117,14 @@ def load_table_info(tname: str):
                 cols = tuple(cols)
 
             except MySQLdb._exceptions.ProgrammingError as exc:
-                if exc.args[0] != 1146:  # Table '{db}.{table}' doesn't exist
+                if exc.args[0] != 1146:  # not Table '{db}.{table}' doesn't exist
                     raise
 
-                return None
+                elif verify:
+                    raise KeyError('failed getting info for table:', tname)
+
+                else:
+                    return None
 
         else:
             raise TypeError(f'unsupported Db driver: {driver}')
