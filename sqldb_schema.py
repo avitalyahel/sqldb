@@ -4,13 +4,14 @@ from generic import OrderedAttrDict
 class TableSchema(OrderedAttrDict):
 
     def __str__(self):
-        return ','.join('{} {}'.format(k, v) for k, v in self.items() if k != '__key__')
+        return ','.join(f"{k} {v}" for k, v in self.items() if k != '__key__')
 
     def __repr__(self):
         if '__key__' in self:
-            return '{}: {}, {}'.format(
-                self.__key__, self[self.__key__],
-                ', '.join(': '.join([k, v]) for k, v in self.items() if k not in [self.__key__, '__key__'] and v))
+            keys = self.__key__.split(',') + ['__key__']
+
+            return ', '.join(f"{k}: {self[k]}" for k in self.__key__.split(',')) + \
+                   ', '.join(f"{k}: {v}" for k, v in self.items() if k not in keys and v)
 
         else:
             return ', '.join(': '.join([k, v]) for k, v in self.items() if v)
@@ -78,3 +79,9 @@ def get_table_schemas() -> OrderedAttrDict:
 
 def get_table_schema(table: str) -> OrderedAttrDict:
     return get_table_schemas()[table]
+
+
+def table_keys_dict(table: str, record: dict, schema: OrderedAttrDict = None) -> dict:
+    schema = schema or get_table_schema(table)
+
+    return dict((key, record[key]) for key in schema.__key__.split(','))

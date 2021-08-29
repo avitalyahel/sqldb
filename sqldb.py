@@ -3,11 +3,13 @@ import sqlite3
 from typing import Iterator, Iterable
 
 import MySQLdb
+import MySQLdb._exceptions
 
 import sqldb_schema
 from generic import AttrDict, OrderedAttrDict
 from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
-from sqldb_schema import TableSchema, update_table_schemas, get_table_schemas, get_table_schema, where_op_value, _quoted
+from sqldb_schema import TableSchema, update_table_schemas, get_table_schemas, get_table_schema, table_keys_dict
+from sqldb_schema import where_op_value
 from verbosity import verbose, set_verbosity
 
 m_conn = sqlite3.Connection('')
@@ -167,38 +169,37 @@ def _drop_create_table(tname):
 
 
 def create(table, **kwargs) -> TableSchema:
-    if '__key__' in get_table_schema(table):
-        key = get_table_schema(table).__key__
-        value = kwargs[key]
-        _assert_not_existing(table, **{key: value})
+    schema = get_table_schema(table)
 
-    record = get_table_schema(table).new(**kwargs)
+    try:
+        assert not existing(table, **table_keys_dict(table, kwargs, schema))
+
+    except KeyError:
+        pass
+
+    record = schema.new(**kwargs)
     sql = 'INSERT INTO {} ({}) VALUES ({})'.format(table, *record.for_insert())
     verbose(2, sql)
     cursor = m_conn.cursor()
     cursor.execute(sql)
     m_conn.commit()
     verbose(1, 'created', table[:-1], repr(record))
+
     return record
 
 
 def update(table, **kwargs):
     schema = get_table_schema(table)
+    keys = table_keys_dict(table, kwargs, schema)
 
-    if '__key__' in schema:
-        key = schema.__key__
-        value = kwargs[key]
-        _assert_existing(table, **{key: value})
-        del kwargs[key]
-        where = f'{key}{where_op_value(value)}'
-        _set = ','.join('='.join([k, _quoted(v)]) for k, v in kwargs.items())
+    if not existing(table, **keys):
+        raise NameError(f"table {table} is missing {keys}")
 
-    else:
-        record = get_table_schema(table).new(**kwargs)
-        where = record.for_where(**kwargs)
-        _set = record.for_update(**kwargs)
+    record = schema.new(**kwargs)
+    where = schema.new(**keys).for_where(**keys)
+    _set = record.for_update(**kwargs)
 
-    sql = 'UPDATE {} SET {} WHERE {}'.format(table, _set, where)
+    sql = f'UPDATE {table} SET {_set} WHERE {where}'
     cursor = m_conn.cursor()
     cursor.execute(sql)
     m_conn.commit()
@@ -206,8 +207,8 @@ def update(table, **kwargs):
 
 
 def read(table, **kv) -> TableSchema:
-    assert len(kv) == 1, 'expected single key-value pair'
-    sql = 'SELECT * FROM {} WHERE {}=\'{}\''.format(table, *list(kv.items())[0])
+    where = get_table_schema(table).new(**kv).for_where(**kv)
+    sql = f"SELECT * FROM {table} WHERE {where}"
     verbose(2, 'reading:', sql)
     cursor = m_conn.cursor()
     cursor.execute(sql)
@@ -222,18 +223,14 @@ def read(table, **kv) -> TableSchema:
 
 
 def existing(table, unbounded=False, **where) -> bool:
-    schema = get_table_schema(table)
-
-    if '__key__' in schema:
-        assert len(where) == 1, 'expected single key-value pair'
-
     if unbounded:
         where_sql = ' AND '.join(f'{k}{where_op_value(str(v))}'
                                  for k, v in where.items() if v)
     else:
+        schema = get_table_schema(table)
         where_sql = schema.new(**where).for_where(**where)
 
-    sql = 'SELECT 1 FROM {} WHERE {} LIMIT 1'.format(table, where_sql)
+    sql = f"SELECT 1 FROM {table} WHERE {where_sql} LIMIT 1"
 
     try:
         cursor = m_conn.cursor()
@@ -253,34 +250,23 @@ def existing(table, unbounded=False, **where) -> bool:
 
 
 def write(table, **kwargs):
-    key = get_table_schema(table).__key__
-    value = kwargs[key]
-
-    if existing(table, **{key: value}):
+    try:
         update(table, **kwargs)
 
-    else:
+    except NameError:
         create(table, **kwargs)
 
 
-def _assert_existing(table, **kv):
-    if not existing(table, **kv):
-        raise NameError('missing from {}: {}={}'.format(table, *list(kv.items())[0]))
-
-
-def _assert_not_existing(table, **kv):
-    if existing(table, **kv):
-        raise NameError('already exists in {}: {}={}'.format(table, *list(kv.items())[0]))
-
-
 def delete(table, lenient=False, **where):
-    if not lenient:
-        _assert_existing(table, **where)
-
+    schema = get_table_schema(table)
+    for_where = schema.new(**where).for_where(**where)
     sql = f'DELETE FROM {table}'
 
+    if not lenient and where:
+        assert existing(table, **where), f"table {table} is missing {for_where}"
+
     if where:
-        sql += ' WHERE ' + get_table_schema(table).new(**where).for_where(**where)
+        sql += ' WHERE ' + for_where
 
     cursor = m_conn.cursor()
     cursor.execute(sql)
@@ -315,7 +301,13 @@ def _select(sql) -> Iterable:  # yield row
     verbose(3, sql)
 
     cursor = m_conn.cursor()
-    cursor.execute(sql)
+
+    try:
+        cursor.execute(sql)
+
+    except Exception as exc:
+        raise type(exc)(str(exc) + f" ({sql})")
+
     row = cursor.fetchone()
 
     while row:
@@ -404,26 +396,20 @@ if __name__ == '__main__':
             ('Field3', 'REAL'),
             ('__key__', 'Field1'),
         )),
-        ('si_classifications', None),
+        ('Table3', TableSchema(
+            ('Field1', 'TEXT'),
+            ('Field2', 'INT'),
+            ('Field3', 'REAL'),
+            ('__key__', 'Field1,Field2'),
+        )),
     ))
-
-    init(name='dev_movado_db@dev-pontaperta-aurora.pontaperta-app.com', driver='MySQLdb',
-         username='movado', password='Yq0ycb0AzS')
-
-    classes = list(select_objects('si_classifications'))
-    assert classes
-
-    assert existing('si_classifications', id=classes[0].id)
-
-    assert read('si_classifications', id=classes[0].id)
-
-    fini()
 
     init(name='/tmp/test.db', drop=True)
 
     sep = '\n\t\t'
 
     assert create('Table1', Field1='abc', Field2=1, Field3=0.5)
+    assert read('Table1', Field1='abc').Field3 == '0.5'
 
     assert create('Table2', Field1='def', Field2=2, Field3=1.5)
 
@@ -431,7 +417,22 @@ if __name__ == '__main__':
 
     assert read('Table2', Field3=1.5)
 
-    assert create('Table1', Field1='tmp')
+    update('Table1', Field1='abc', Field3=1.5)
+    assert read('Table1', Field1='abc').Field3 == '1.5'
+
+    try:
+        update('Table1', Field1='abcd', Field3=2.5)
+
+    except NameError as exc:
+        if 'missing' not in str(exc):
+            raise
+
+    write('Table2', Field1='ghi', Field2='1', Field3='2.3')
+    assert read('Table2', Field1='ghi').Field2 == '1'
+    write('Table2', Field1='ghi', Field2='2', Field3='2.3')
+    assert read('Table2', Field1='ghi').Field2 == '2'
+
+    assert create('Table1', Field1='tmp').Field1 == 'tmp'
 
     delete('Table1', Field1='tmp')
 
@@ -452,8 +453,15 @@ if __name__ == '__main__':
 
     assert create('Table2', Field1='hjf', Field3=0.5)
     assert create('Table2', Field1='lmn', Field3=11.11)
-    print(sep.join(str(r) for r in select('Table1')))
-    print(sep.join(str(r) for r in select('Table2')))
-    print(sep.join(str(r) for r in select_join(left='Table1', right='Table2', on='Field3')))
+    print(sep.strip('\n') + sep.join(str(r) for r in select('Table1')))
+    print(sep.strip('\n') + sep.join(str(r) for r in select('Table2')))
+    print(sep.strip('\n') + sep.join(str(r) for r in select_join(left='Table1', right='Table2', on='Field3')))
+
+    assert create('Table3', Field1='hij', Field2=1, Field3=1.1).Field3 == '1.1'
+    update('Table3', Field1='hij', Field2=1, Field3=2.2)
+    assert read('Table3', Field1='hij', Field2=1).Field3 == '2.2'
+    write('Table3', Field1='hij', Field2=2, Field3=3.3)
+    assert read('Table3', Field1='hij', Field2=2).Field3 == '3.3'
+    assert len(list(select('Table3', Field1='hij'))) == 2
 
     fini()
