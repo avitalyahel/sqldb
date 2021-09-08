@@ -306,7 +306,7 @@ def _select(sql) -> Iterable:  # yield row
         cursor.execute(sql)
 
     except Exception as exc:
-        raise type(exc)(str(exc) + f" ({sql})")
+        raise type(exc)(str(exc) + f' "{sql}"')
 
     row = cursor.fetchone()
 

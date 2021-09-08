@@ -37,15 +37,20 @@ class TableSchema(OrderedAttrDict):
 def where_op_value(value: str) -> str:
     if value and value[0] in '><':
         op = f' {value[0]}'
-        value = value[1:].strip()
+        value = _quoted(value[1:].strip())
+
+    elif value and value[:2] == "('":
+        op = ' IN '
 
     elif '%' in value:
         op = ' LIKE '
+        value = _quoted(value)
 
     else:
         op = ' = '
+        value = _quoted(value)
 
-    return f'{op}{_quoted(value)}'
+    return f'{op}{value}'
 
 
 def _quoted(val):
