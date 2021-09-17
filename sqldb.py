@@ -57,7 +57,7 @@ def connect(name: str, driver: str = '', username: str = '', password: str = '')
 
     elif driver == 'MySQLdb':
         name, host = name.split('@', 1) if '@' in name else (name, 'localhost')
-        m_conn = MySQLdb.connect(host=host, database=name, user=username, password=password)
+        m_conn = MySQLdb.connect(host=host, database=name, user=username, password=password, charset='utf8')
         verbose(2, f'connected to {name}@{host}')
 
     else:
