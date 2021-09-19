@@ -10,7 +10,7 @@ class TableSchema(OrderedAttrDict):
         if '__key__' in self:
             keys = self.__key__.split(',') + ['__key__']
 
-            return ', '.join(f"{k}: {self[k]}" for k in self.__key__.split(',')) + \
+            return ', '.join(f"{k}: {self[k]}" for k in self.__key__.split(',')) + ', ' + \
                    ', '.join(f"{k}: {v}" for k, v in self.items() if k not in keys and v)
 
         else:
@@ -58,7 +58,7 @@ def where_op_value(value) -> str:
 
 
 def _quoted(val):
-    return "'{}'".format(val.replace("'", "''")) if isinstance(val, str) else _empty(val)
+    return "\"{}\"".format(val.replace('"', '""')) if isinstance(val, str) and not val.isnumeric() else _empty(val)
 
 
 def _empty(val):
