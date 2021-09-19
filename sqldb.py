@@ -260,6 +260,13 @@ def write(table, **kwargs):
     except NameError:
         create(table, **kwargs)
 
+    except KeyError as exc:
+        if exc.args[0] != '__key__':
+            raise
+
+        delete(table, lenient=True, **kwargs)
+        create(table, **kwargs)
+
 
 def delete(table, lenient=False, **where):
     schema = get_table_schema(table)
