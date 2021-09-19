@@ -4,13 +4,14 @@ from typing import Iterator, Iterable
 
 import MySQLdb
 import MySQLdb._exceptions
+import yaml
 
 import sqldb_schema
 from generic import AttrDict, OrderedAttrDict
 from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
 from sqldb_schema import TableSchema, update_table_schemas, get_table_schemas, get_table_schema, table_keys_dict
 from sqldb_schema import where_op_value
-from verbosity import verbose, set_verbosity
+from verbosity import verbose, set_verbosity, get_verbosity_level
 
 m_conn = sqlite3.Connection('')
 m_db_path = ''
@@ -82,6 +83,9 @@ def init(name: str = '', driver: str = '', username: str = '', password: str = '
             _drop_create_table(tname)
 
         load_table_info(tname, verify=verify and not fields)
+
+    if get_verbosity_level() > 1:
+        print(yaml.dump(get_table_schemas(), default_flow_style=False, width=999))
 
 
 def fini():
@@ -183,7 +187,7 @@ def create(table, **kwargs) -> TableSchema:
     cursor = m_conn.cursor()
     cursor.execute(sql)
     m_conn.commit()
-    verbose(1, 'created', table[:-1], repr(record))
+    verbose(1, 'created at', table, repr(record))
 
     return record
 
@@ -203,7 +207,7 @@ def update(table, **kwargs):
     cursor = m_conn.cursor()
     cursor.execute(sql)
     m_conn.commit()
-    verbose(2, 'updated', table[:-1], sql)
+    verbose(2, 'updated at', table, sql)
 
 
 def read(table, **kv) -> TableSchema:
@@ -215,10 +219,10 @@ def read(table, **kv) -> TableSchema:
     values = cursor.fetchone()
 
     if not values:
-        raise NameError('missing from {}: {}={}'.format(table, *list(kv.items())[0]))
+        raise NameError('missing from {}: {}={} "{}"'.format(table, *list(kv.items())[0], sql))
 
     record = _new_schema(table, values)
-    verbose(2, 'read', table[:-1], repr(record))
+    verbose(2, 'read from', table, repr(record))
     return record
 
 
