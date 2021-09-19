@@ -34,21 +34,25 @@ class TableSchema(OrderedAttrDict):
                             if (v or k in kwargs) and k != '__key__')
 
 
-def where_op_value(value: str) -> str:
-    if value and value[0] in '><':
-        op = f' {value[0]}'
-        value = _quoted(value[1:].strip())
-
-    elif value and value[:2] == "('":
+def where_op_value(value) -> str:
+    if isinstance(value, (tuple, list)):
         op = ' IN '
-
-    elif '%' in value:
-        op = ' LIKE '
-        value = _quoted(value)
+        value = '(' + ','.join(f"'{v}'" for v in value) + ')'
 
     else:
-        op = ' = '
-        value = _quoted(value)
+        assert isinstance(value, str)
+
+        if value and value[0] in '><':
+            op = f' {value[0]}'
+            value = _quoted(value[1:].strip())
+
+        elif '%' in value:
+            op = ' LIKE '
+            value = _quoted(value)
+
+        else:
+            op = ' = '
+            value = _quoted(value)
 
     return f'{op}{value}'
 
@@ -58,7 +62,7 @@ def _quoted(val):
 
 
 def _empty(val):
-    return '' if val is None else str(val)
+    return '' if val is None else (val if isinstance(val, (tuple, list)) else str(val))
 
 
 PYTYPES = dict(
