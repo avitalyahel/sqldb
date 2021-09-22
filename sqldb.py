@@ -214,11 +214,11 @@ def read(table, **kv) -> TableSchema:
     where = get_table_schema(table).new(**kv).for_where(**kv)
     sql = f"SELECT * FROM {table} WHERE {where}"
     verbose(2, 'reading:', sql)
-    cursor = m_conn.cursor()
-    cursor.execute(sql)
-    values = cursor.fetchone()
 
-    if not values:
+    try:
+        values = next(_select(sql))
+
+    except StopIteration:
         raise NameError('missing from {}: {}={} "{}"'.format(table, *list(kv.items())[0], sql))
 
     record = _new_schema(table, values)
@@ -237,9 +237,10 @@ def existing(table, unbounded=False, **where) -> bool:
     sql = f"SELECT 1 FROM {table} WHERE {where_sql} LIMIT 1"
 
     try:
-        cursor = m_conn.cursor()
-        cursor.execute(sql)
-        values = cursor.fetchone()
+        values = next(_select(sql))
+
+    except StopIteration:
+        values = None
 
     except sqlite3.OperationalError as exc:
         values = None
@@ -311,6 +312,7 @@ def select(table: str, *columns, **where) -> Iterable:  # yield row
 def _select(sql) -> Iterable:  # yield row
     verbose(3, sql)
 
+    m_conn.commit()
     cursor = m_conn.cursor()
 
     try:
