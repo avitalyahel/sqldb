@@ -1,3 +1,4 @@
+import logging
 import os
 import sqlite3
 from typing import Iterator, Iterable
@@ -11,7 +12,8 @@ from generic import AttrDict, OrderedAttrDict
 from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
 from sqldb_schema import TableSchema, get_table_schemas, get_table_schema, table_keys_dict
 from sqldb_schema import where_op_value
-from verbosity import verbose, get_verbosity_level
+
+m_logger = logging.getLogger(__name__)
 
 m_conn = sqlite3.Connection('')
 m_db_path = ''
@@ -54,12 +56,12 @@ def connect(name: str, driver: str = '', username: str = '', password: str = '')
     if not driver or driver == 'sqlite3':
         m_db_path = os.path.expanduser(name)
         m_conn = sqlite3.connect(m_db_path, check_same_thread=False)
-        verbose(2, 'connected to', m_db_path)
+        m_logger.info('connected to ' + m_db_path)
 
     elif driver == 'MySQLdb':
         name, host = name.split('@', 1) if '@' in name else (name, 'localhost')
         m_conn = MySQLdb.connect(host=host, database=name, user=username, password=password, charset='utf8')
-        verbose(2, f'connected to {name}@{host}')
+        m_logger.info(f'connected to {name}@{host}')
 
     else:
         raise KeyError(f'unsupported driver: {driver}, only one of: sqlite3, MySQLdb')
@@ -70,7 +72,7 @@ def disconnect():
 
     m_conn.commit()
     m_conn.close()
-    verbose(2, 'closed connection:', repr(m_conn))
+    m_logger.debug('closed connection: ' + repr(m_conn))
     m_conn = sqlite3.Connection('')
 
 
@@ -84,8 +86,7 @@ def init(name: str = '', driver: str = '', username: str = '', password: str = '
 
         load_table_info(tname, verify=verify and not fields)
 
-    if get_verbosity_level() > 1:
-        print(yaml.dump(get_table_schemas(), default_flow_style=False, width=999))
+    m_logger.debug(yaml.dump(get_table_schemas(), default_flow_style=True, width=999))
 
 
 def fini():
@@ -137,7 +138,7 @@ def load_table_info(tname: str, verify: bool = True):
 
         if cols:
             m_table_columns[tname] = TableColumns(*cols)
-            verbose(2, 'loaded info of table:', tname)
+            m_logger.debug('loaded info of table: ' + tname)
 
             if tname not in sqldb_schema.m_table_schemas or not sqldb_schema.m_table_schemas[tname]:
                 sqldb_schema.m_table_schemas[tname] = sqldb_schema.TableSchema(
@@ -169,7 +170,7 @@ def _drop_create_table(tname):
     cursor = m_conn.cursor()
     cursor.execute('DROP TABLE IF EXISTS ' + tname)
     cursor.execute('CREATE TABLE {} ({})'.format(tname, str(get_table_schema(tname))))
-    verbose(2, 'initialized table:', tname)
+    m_logger.info('initialized table: ' + tname)
 
 
 def create(table, **kwargs) -> TableSchema:
@@ -183,11 +184,11 @@ def create(table, **kwargs) -> TableSchema:
 
     record = schema.new(**kwargs)
     sql = 'INSERT INTO {} ({}) VALUES ({})'.format(table, *record.for_insert())
-    verbose(2, sql)
+    m_logger.debug(sql)
     cursor = m_conn.cursor()
     cursor.execute(sql)
     m_conn.commit()
-    verbose(1, 'created at', table, repr(record))
+    m_logger.info(f'created at {table} {repr(record)}')
 
     return record
 
@@ -207,13 +208,13 @@ def update(table, **kwargs):
     cursor = m_conn.cursor()
     cursor.execute(sql)
     m_conn.commit()
-    verbose(2, 'updated at', table, sql)
+    m_logger.debug(f'updated at {table} {sql}')
 
 
 def read(table, **kv) -> TableSchema:
     where = get_table_schema(table).new(**kv).for_where(**kv)
     sql = f"SELECT * FROM {table} WHERE {where}"
-    verbose(2, 'reading:', sql)
+    m_logger.debug('reading: ' + sql)
 
     try:
         values = next(_select(sql))
@@ -222,7 +223,8 @@ def read(table, **kv) -> TableSchema:
         raise NameError('missing from {}: {}={} "{}"'.format(table, *list(kv.items())[0], sql))
 
     record = _new_schema(table, values)
-    verbose(2, 'read from', table, repr(record))
+    m_logger.debug(f'read from {table} {repr(record)}')
+
     return record
 
 
@@ -249,7 +251,7 @@ def existing(table, unbounded=False, **where) -> bool:
             raise exc
 
     exists = values is not None and len(values) > 0
-    verbose(2, ' '.join(f'{k}={v}' for k, v in where.items()), 'does' if exists else 'does not', 'exist')
+    m_logger.debug(' '.join(f'{k}={v}' for k, v in where.items()) + ' does' if exists else ' does not' + ' exist')
 
     return exists
 
@@ -283,7 +285,7 @@ def delete(table, lenient=False, **where):
     cursor = m_conn.cursor()
     cursor.execute(sql)
     m_conn.commit()
-    verbose(1, '[v]', sql)
+    m_logger.debug('Done ' + sql)
 
 
 def list_table(table, **where) -> Iterator:
@@ -310,8 +312,7 @@ def select(table: str, *columns, **where) -> Iterable:  # yield row
 
 
 def _select(sql) -> Iterable:  # yield row
-    verbose(3, sql)
-
+    m_logger.debug(sql)
     m_conn.commit()
     cursor = m_conn.cursor()
 

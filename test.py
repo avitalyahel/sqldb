@@ -1,8 +1,14 @@
+import logging
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(levelname).1s: %(message)s  <%(filename)s:%(lineno)d>',
+)
+
 from sqldb import *
+from sqldb_schema import *
 
 if __name__ == '__main__':
-    set_verbosity(3)
-
     update_table_schemas(OrderedAttrDict(
         ('Table1', TableSchema(
             ('Field1', 'TEXT'),

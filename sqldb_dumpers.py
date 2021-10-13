@@ -1,10 +1,12 @@
 import json
+import logging
 from collections import OrderedDict
 
 import yaml
 
 import generic
-from verbosity import verbose
+
+m_logger = logging.getLogger(__name__)
 
 
 class Dumper:
@@ -29,8 +31,7 @@ class Dumper:
     def close(self):
         if self._file:
             self._file.close()
-
-            verbose(1, 'Closed', self._file.name)
+            m_logger.info('Closed ' + self._file.name)
 
     def public(self, obj: OrderedDict) -> OrderedDict:
         return OrderedDict((k, v) for k, v in obj.items() if not k.startswith('_'))
