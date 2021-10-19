@@ -11,7 +11,7 @@ import sqldb_schema
 from generic import AttrDict, OrderedAttrDict
 from sqldb_dumpers import DUMPERS, dump_file_fmt, Dumper
 from sqldb_schema import TableSchema, get_table_schemas, get_table_schema, table_keys_dict
-from sqldb_schema import where_op_value
+from sqldb_schema import where_op_value, _quoted
 
 m_logger = logging.getLogger(__name__)
 
@@ -228,13 +228,14 @@ def read(table, **kv) -> TableSchema:
     return record
 
 
-def existing(table, unbounded=False, **where) -> bool:
-    if unbounded:
+def existing(table, by_schema=True, **where) -> bool:
+    if by_schema:
+        by_schema = get_table_schema(table)
+        where_sql = by_schema.new(**where).for_where(**where)
+
+    else:
         where_sql = ' AND '.join(f'{k}{where_op_value(str(v))}'
                                  for k, v in where.items() if v)
-    else:
-        schema = get_table_schema(table)
-        where_sql = schema.new(**where).for_where(**where)
 
     sql = f"SELECT 1 FROM {table} WHERE {where_sql} LIMIT 1"
 
@@ -271,9 +272,14 @@ def write(table, **kwargs):
         create(table, **kwargs)
 
 
-def delete(table, lenient=False, **where):
-    schema = get_table_schema(table)
-    for_where = schema.new(**where).for_where(**where)
+def delete(table, lenient=False, by_schema=True, **where):
+    if by_schema:
+        by_schema = get_table_schema(table)
+        for_where = by_schema.new(**where).for_where(**where)
+
+    else:
+        for_where = ' '.join(f"{k}={_quoted(v)}" for k, v in where.items())
+
     sql = f'DELETE FROM {table}'
 
     if not lenient and where:
@@ -292,7 +298,7 @@ def list_table(table, **where) -> Iterator:
     return (_new_schema(table, row) for row in rows(table, **where))
 
 
-def select(table: str, *columns, **where) -> Iterable:  # yield row
+def select(table: str, by_schema=True, *columns, **where) -> Iterable:  # yield row
     sql = f"SELECT {','.join(columns) if columns else '*'} FROM {table}"
 
     if 'order_by' in where:
@@ -303,7 +309,13 @@ def select(table: str, *columns, **where) -> Iterable:  # yield row
         order_by = ''
 
     if where:
-        sql += ' WHERE ' + get_table_schema(table).new(**where).for_where(**where)
+        sql += ' WHERE '
+
+        if by_schema:
+            sql += get_table_schema(table).new(**where).for_where(**where)
+
+        else:
+            sql += ' '.join(f"{k}={_quoted(v)}" for k, v in where.items())
 
     sql += order_by
 
