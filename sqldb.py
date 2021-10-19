@@ -177,7 +177,8 @@ def create(table, **kwargs) -> TableSchema:
     schema = get_table_schema(table)
 
     try:
-        assert not existing(table, **table_keys_dict(table, kwargs, schema))
+        keys = table_keys_dict(table, kwargs, schema)
+        assert not existing(table, **keys), f"{keys} already exists at {table}"
 
     except KeyError:
         pass
@@ -298,7 +299,7 @@ def list_table(table, **where) -> Iterator:
     return (_new_schema(table, row) for row in rows(table, **where))
 
 
-def select(table: str, by_schema=True, *columns, **where) -> Iterable:  # yield row
+def select(table: str, *columns, by_schema=True, **where) -> Iterable:  # yield row
     sql = f"SELECT {','.join(columns) if columns else '*'} FROM {table}"
 
     if 'order_by' in where:
