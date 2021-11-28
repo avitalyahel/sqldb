@@ -173,15 +173,16 @@ def _drop_create_table(tname):
     m_logger.info('initialized table: ' + tname)
 
 
-def create(table, **kwargs) -> TableSchema:
+def create(table, lenient=False, **kwargs) -> TableSchema:
     schema = get_table_schema(table)
 
-    try:
-        keys = table_keys_dict(table, kwargs, schema)
-        assert not existing(table, **keys), f"{keys} already exists at {table}"
+    if not lenient:
+        try:
+            keys = table_keys_dict(table, kwargs, schema)
+            assert not existing(table, **keys), f"{keys} already exists at {table}"
 
-    except KeyError:
-        pass
+        except KeyError:
+            pass
 
     record = schema.new(**kwargs)
     sql = 'INSERT INTO {} ({}) VALUES ({})'.format(table, *record.for_insert())
@@ -263,7 +264,7 @@ def write(table, **kwargs):
         update(table, **kwargs)
 
     except NameError:
-        create(table, **kwargs)
+        create(table, lenient=True, **kwargs)
 
     except KeyError as exc:
         if exc.args[0] != '__key__':
