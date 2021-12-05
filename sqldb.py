@@ -254,7 +254,9 @@ def existing(table, by_schema=True, **where) -> bool:
             raise exc
 
     exists = values is not None and len(values) > 0
-    m_logger.debug(' '.join(f'{k}={v}' for k, v in where.items()) + f" {'does' if exists else 'does not'} exist'")
+    m_logger.debug(table + ' ' +
+                   ' '.join(f'{k}={v}' for k, v in where.items()) +
+                   f" {'does' if exists else 'does not'} exist")
 
     return exists
 
